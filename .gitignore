@@ -1,0 +1,6 @@
+.vs/
+out/build/
+out/Ubuntu-24.04/
+out/install/Linux_x64_Debug/
+out/install/Windows_x64_Debug/
+readme.txt
