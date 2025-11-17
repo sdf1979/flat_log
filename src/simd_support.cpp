@@ -1,4 +1,4 @@
-#include "simd_support.h"
+﻿#include "simd_support.h"
 
 namespace soldy {
 

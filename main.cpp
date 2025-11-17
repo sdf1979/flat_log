@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
@@ -122,6 +122,11 @@ int main(int argc, char* argv[], char* envp[]) {
         std::error_code ec;
         if (!flat_log.Open(ec)) {
             std::wcout << L"Error: file '" << file.wstring() << L"' not open (" << error_str(ec) << L")" << std::endl;
+            continue;
+        }
+
+        if (flat_log.FileSize() <= 3) {
+            std::wcout << L"File '" << file.wstring() << L"'is empty, skipping" << std::endl;
             continue;
         }
 

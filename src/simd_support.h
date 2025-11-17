@@ -1,10 +1,8 @@
-#pragma once
+﻿#pragma once
 
 #ifdef _WIN32
 #include <intrin.h>
 #include <windows.h>
-#else
-#include <cpuid.h>
 #endif
 #include <string>
 #include <cwctype>
