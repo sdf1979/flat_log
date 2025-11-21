@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <string>
 #include <unordered_map>
@@ -23,6 +23,7 @@ namespace soldy {
 		std::wstring GetPath() const;
 		std::wstring GetSimd() const;
 		size_t GetChank() const;
+		int GetCountThread() const;
 		bool IsHelp() const;
 		std::wstring Help() const;
 	};

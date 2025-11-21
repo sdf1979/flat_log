@@ -1,4 +1,4 @@
-#include "argument_parser.h"
+﻿#include "argument_parser.h"
 
 namespace soldy {
 
@@ -43,14 +43,19 @@ namespace soldy {
 	std::wstring ArgumentParser::Help() const {
 		std::wstring help =
 			L"All options:\n"
-			L"  -P [ --path  ] arg          Full path to the directory with logs or log file.\n"
-			L"  -C [ --chank ] arg (=4)     The chunk size in gigabytes when mapping a file into memory.\n"
-			L"                              Available values : 1, 2, 4, 8, 16, 32, 64, 128, 256.\n"
-			L"  -M [ --mode  ] arg (=flat)  Launch mode, flat - replace line breaks in a multi-line event with\n"
-			L"                              service characters, unflat - reverse transformation.\n"
-			L"  -S [ --simd  ] arg (=auto)  The option to use SIMD processor instructions.\n"
-			L"                              Possible values : auto, avx512, avx2, none.\n"
-			L"  -H [ --help  ]              Produce help message\n";
+			L"  -P [ --path   ] arg          Full path to the directory with logs or log file.\n"
+			L"  -T [ --thread ] arg (=1)     Number of file processing threads.\n"
+			L"  -C [ --chank  ] arg (=4)     The chunk size in gigabytes when mapping a file into memory.\n"
+			L"                               Available values : 1, 2, 4, 8, 16, 32, 64, 128, 256.\n"
+			L"  -M [ --mode   ] arg (=flat)  Launch mode, flat - replace line breaks in a multi-line event with\n"
+			L"                               service characters, unflat - reverse transformation.\n"
+			L"  -S [ --simd   ] arg (=auto)  The option to use SIMD processor instructions.\n"
+			L"                               Possible values : auto, avx512, avx2, none.\n"
+			L"  -H [ --help   ]              Produce help message\n"
+			L"Example for windows:\n"
+			L"  flat_log.exe -P=C:\\LOGS -T=2 or flat_log.exe --path=C:\\LOGS --thread=2\n"
+			L"Example for linux:\n"
+			L"  ./flat_log -P=/home/usr/LOGS -T=2 or ./flat_log --path=/home/usr/LOGS --thread=2\n"			;
 		
 		const char* old_locale = setlocale(LC_ALL, nullptr);
 		
@@ -74,9 +79,14 @@ namespace soldy {
 		return static_cast<size_t>(std::stoull(chankw));
 	}
 
+	int ArgumentParser::GetCountThread() const {
+		std::wstring chankw = get(L"thread", L"1");
+		return static_cast<size_t>(std::stoull(chankw));
+	}
+
 	bool ArgumentParser::parseArg(const std::wstring& arg, std::wstring& er) {
 		if (arg.starts_with(L"-") || arg.starts_with(L"--")) {
-			
+
 			std::wstring key, value;
 			size_t len_prefix = arg.starts_with(L"--") ? 2 : 1;
 
@@ -91,28 +101,37 @@ namespace soldy {
 
 			if (key == L"P" || key == L"path") {
 				key = L"path";
-			} else if (key == L"M" || key == L"mode") {
+			}
+			else if (key == L"M" || key == L"mode") {
 				key = L"mode";
 				if (!(value == L"flat" || value == L"unflat")) {
 					er.append(L"Invalid value '").append(value).append(L"' for parameter '- M[--mode]'.\n");
 					return false;
 				}
-			} else if (key == L"S" || key == L"simd") {
+			}
+			else if (key == L"S" || key == L"simd") {
 				key = L"simd";
 				if (!(value == L"auto" || value == L"avx512" || value == L"avx2" || value == L"none")) {
 					er.append(L"Invalid value '").append(value).append(L"' for parameter '-S [--simd]'.\n");
 					return false;
 				}
-			} else if (key == L"C" || key == L"chank") {
+			}
+			else if (key == L"C" || key == L"chank") {
 				key = L"chank";
 				if (!(value == L"1" || value == L"2" || value == L"4" || value == L"8" || value == L"16"
 					|| value == L"32" || value == L"64" || value == L"128" || value == L"256")) {
 					er.append(L"Invalid value '").append(value).append(L"' for parameter '-C [--chank]'.\n");
 					return false;
 				}
-			} else if (key == L"H" || key == L"help") {
+			}
+			else if (key == L"T" || key == L"thread") {
+				key = L"thread";
+			}
+			else if (key == L"H" || key == L"help") {
 				key = L"help";
-			} else {
+			}
+
+			else {
 				er.append(L"Unknown parameter '").append(key).append(L"'.\n");
 				return false;
 			}
@@ -134,7 +153,5 @@ namespace soldy {
 		}
 		return defaultValue;
 	}
-
-
 
 }

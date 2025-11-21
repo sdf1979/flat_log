@@ -1,5 +1,8 @@
 ﻿#include <iostream>
 #include <vector>
+#include <mutex>
+#include <future>
+#include <semaphore>
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
@@ -17,7 +20,9 @@ using SimdSupport = soldy::SimdSupport;
 using ArgumentParser = soldy::ArgumentParser;
 namespace fs = std::filesystem;
 
-static std::wstring error_str(std::error_code& ec) {
+mutex coutMutex;
+
+static wstring error_str(error_code& ec) {
     char* old_locale = std::setlocale(LC_ALL, nullptr);
     std::setlocale(LC_ALL, "en_US.UTF-8");
 
@@ -34,7 +39,23 @@ static std::wstring error_str(std::error_code& ec) {
     return error_str;
 }
 
-std::vector<fs::path> getLogFiles(const std::wstring& path) {
+SimdSupport::SimdLevel getSimdLevel(const ArgumentParser& arguments) {
+    
+    wstring simd_level_wstr = arguments.GetSimd();
+
+    SimdSupport::SimdLevel simd_level;
+    if (simd_level_wstr == L"auto") {
+        SimdSupport sp;
+        simd_level = sp.BestLevel();
+    }
+    else {
+        simd_level = SimdSupport::StringToSimdLevel(simd_level_wstr);
+    }
+
+    return simd_level;
+}
+
+vector<fs::path> getLogFiles(const wstring& path) {
     std::vector<fs::path> logFiles;
 
     try {
@@ -64,6 +85,46 @@ std::vector<fs::path> getLogFiles(const std::wstring& path) {
     return logFiles;
 }
 
+size_t convertFile(const fs::path& file, FlatLog::Mode mode, size_t chank_size, SimdSupport::SimdLevel simd_level) {
+    auto start = chrono::high_resolution_clock::now();
+
+    FlatLog flat_log(file.string());
+    error_code ec;
+    if (!flat_log.Open(ec)) {
+        {
+            lock_guard<mutex> lock(coutMutex);
+            wcout << L"Error: file '" << file.wstring() << L"' not open (" << error_str(ec) << L")" << endl;
+        }
+        return 0;
+    }
+
+    if (flat_log.FileSize() <= 3) {
+        {
+            lock_guard<mutex> lock(coutMutex);
+            wcout << L"File '" << file.wstring() << L"'is empty, skipping" << endl;
+        }
+        return 0;
+    }
+
+    flat_log.SetSimdLevel(simd_level);
+       
+    if (!flat_log.ProcessData(mode, chank_size, ec)) {
+        lock_guard<mutex> lock(coutMutex);
+        wcout << error_str(ec) << endl;
+        return 0;
+    }
+
+    auto end = chrono::high_resolution_clock::now();
+    auto duration = chrono::duration_cast<chrono::microseconds>(end - start);
+    
+    {
+        lock_guard<mutex> lock(coutMutex);
+        wcout << L"file '" << file.wstring() << L"': " << flat_log.FileSize() << L" bytes in " << duration.count() << L" microseconds" << endl;
+    }
+
+    return flat_log.FileSize();
+}
+
 #ifdef _WIN32
 int wmain(int argc, wchar_t* argv[], wchar_t* envp[]) {
     auto cur_mode_out = _setmode(_fileno(stdout), _O_U16TEXT);
@@ -73,86 +134,66 @@ int wmain(int argc, wchar_t* argv[], wchar_t* envp[]) {
 int main(int argc, char* argv[], char* envp[]) {
 #endif
     ArgumentParser arguments;
-    std::wstring er;
+    wstring er;
     if (!arguments.Parse(argc, argv, er)) {
-        std::wcout << er << std::endl;
+        wcout << er << endl;
         return 0;
     }
 
     if (arguments.IsHelp()) {
         SimdSupport sp;
-        std::wcout << sp.ToString() << std::endl;
-        std::wcout << arguments.Help() << std::endl;
+        wcout << sp.ToString() << endl << arguments.Help() << endl;
         return 0;
     }
 
-    std::wstring path = arguments.GetPath();
+    wstring path = arguments.GetPath();
     if (path.empty()) {
-        std::wcout << "Error: the '-P [--path]' parameter is empty. Specify a file or directory." << std::endl;
+        wcout << "Error: the '-P [--path]' parameter is empty. Specify a file or directory." << endl;
         return 0;
     }
 
-    std::wstring simd_level_wstr = arguments.GetSimd();
+    SimdSupport::SimdLevel simd_level = getSimdLevel(arguments);
+    FlatLog::Mode mode = (arguments.GetMode() == L"flat" ? FlatLog::Mode::Flat : FlatLog::Mode::Unflat);
     
-    SimdSupport::SimdLevel simd_level;
-    if (simd_level_wstr == L"auto") {
-        SimdSupport sp;
-        simd_level = sp.BestLevel();
-    }
-    else {
-        simd_level = SimdSupport::StringToSimdLevel(simd_level_wstr);
-    }
-    std::wstring mode = arguments.GetMode();
-
-    const size_t chank_size = arguments.GetChank() * 1024 * 1024 * 1024;
-    std::vector<fs::path> files = getLogFiles(path);
-
-    std::wcout << L"SIMD: " << SimdSupport::SimdLevelToString(simd_level)
+    wcout << L"SIMD: " << SimdSupport::SimdLevelToString(simd_level)
         << L"; Chank: " << arguments.GetChank() << L"GB"
-        << L"; Mode=" << mode << L";" << std::endl;
+        << L"; Mode=" << arguments.GetMode() << L";"
+        << L"Thread=" << arguments.GetCountThread() << endl;
 
-    size_t all_size = 0;
-    auto start = std::chrono::high_resolution_clock::now();
+    atomic<size_t> all_size{ 0 };
+    auto start = chrono::high_resolution_clock::now();
 
+    vector<fs::path> files = getLogFiles(path);
+    const size_t chank_size = arguments.GetChank() * 1024 * 1024 * 1024;
+
+    int maxThreads = arguments.GetCountThread();
+    counting_semaphore<> semaphore(maxThreads);
+    std::vector<std::future<size_t>> futures;
     for (const auto& file : files) {
+        semaphore.acquire();
 
-        auto start = std::chrono::high_resolution_clock::now();
-
-        FlatLog flat_log(file.string());
-        std::error_code ec;
-        if (!flat_log.Open(ec)) {
-            std::wcout << L"Error: file '" << file.wstring() << L"' not open (" << error_str(ec) << L")" << std::endl;
-            continue;
-        }
-
-        if (flat_log.FileSize() <= 3) {
-            std::wcout << L"File '" << file.wstring() << L"'is empty, skipping" << std::endl;
-            continue;
-        }
-
-        if (!simd_level_wstr.empty()) {
-            flat_log.SetSimdLevel(simd_level);
-        }
-
-        std::wcout << L"file '" << file.wstring() << L"': " << flat_log.FileSize() << L" bytes in ";
-
-        if (mode == L"flat" ? !flat_log.ProcessData(FlatLog::Mode::Flat, chank_size, ec) : !flat_log.ProcessData(FlatLog::Mode::Unflat, chank_size, ec)) {
-            std::wcout << error_str(ec) << std::endl;
-            continue;
-        }
-
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-        all_size += flat_log.FileSize();
-
-        std::wcout << duration.count() << L" microseconds" << std::endl;
-
+        futures.push_back(std::async(std::launch::async,
+            [&semaphore, &all_size, file, mode, chank_size, simd_level]() -> size_t {
+                try {
+                    size_t size = convertFile(file, mode, chank_size, simd_level);
+                    all_size += size;
+                    semaphore.release();
+                    return size;
+                }
+                catch (...) {
+                    semaphore.release();
+                    return 0;
+                }
+            }));
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    for (auto& future : futures) {
+        future.get();
+    }
 
-    std::wcout << L"All in files: " << all_size << L" bytes in " << duration.count() << L" microseconds" << std::endl;
+    auto end = chrono::high_resolution_clock::now();
+    auto duration = chrono::duration_cast<chrono::microseconds>(end - start);
+
+    wcout << L"All in files: " << all_size << L" bytes in " << duration.count() << L" microseconds" << endl;
     return 0;
 }
