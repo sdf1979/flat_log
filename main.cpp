@@ -85,6 +85,54 @@ vector<fs::path> getLogFiles(const wstring& path) {
     return logFiles;
 }
 
+wstring formatOutBytes(size_t bytes) {
+
+    std::wstringstream wss;
+
+    const size_t KB = 1024;
+    const size_t MB = KB * 1024;
+    const size_t GB = MB * 1024;
+    const size_t TB = GB * 1024;
+
+    if (bytes >= TB) {
+        wss << std::fixed << setprecision(2) << (bytes / static_cast<double>(TB)) << L" TB";
+    }
+    else if (bytes >= GB) {
+        wss << std::fixed << setprecision(2) << (bytes / static_cast<double>(GB)) << L" GB";
+    }
+    else if (bytes >= MB) {
+        wss << std::fixed << setprecision(2) << (bytes / static_cast<double>(MB)) << L" MB";
+    }
+    else if (bytes >= KB) {
+        wss << std::fixed << setprecision(2) << (bytes / static_cast<double>(KB)) << L" KB";
+    }
+    else {
+        wss << std::fixed << bytes << L" bytes";
+    }
+
+    return wss.str();
+}
+
+wstring formatOutMicroseconds(size_t microseconds) {
+
+    std::wstringstream wss;
+
+    const size_t MILLISECONDS = 1000;
+    const size_t SECONDS = MILLISECONDS * 1000;
+    
+    if (microseconds >= SECONDS) {
+        wss << std::fixed << setprecision(2) << (microseconds / static_cast<double>(SECONDS)) << L" seconds";
+    }
+    else if (microseconds >= MILLISECONDS) {
+        wss << std::fixed << setprecision(2) << (microseconds / static_cast<double>(MILLISECONDS)) << L" milliseconds";
+    }
+    else {
+        wss << std::fixed << microseconds << L" microseconds";
+    }
+
+    return wss.str();
+}
+
 size_t convertFile(const fs::path& file, FlatLog::Mode mode, size_t chank_size, SimdSupport::SimdLevel simd_level) {
     auto start = chrono::high_resolution_clock::now();
 
@@ -119,7 +167,7 @@ size_t convertFile(const fs::path& file, FlatLog::Mode mode, size_t chank_size, 
     
     {
         lock_guard<mutex> lock(coutMutex);
-        wcout << L"file '" << file.wstring() << L"': " << flat_log.FileSize() << L" bytes in " << duration.count() << L" microseconds" << endl;
+        wcout << L"file '" << file.wstring() << L"': " << formatOutBytes(flat_log.FileSize()) << L" in " << formatOutMicroseconds(duration.count()) << endl;
     }
 
     return flat_log.FileSize();
@@ -194,6 +242,6 @@ int main(int argc, char* argv[], char* envp[]) {
     auto end = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::microseconds>(end - start);
 
-    wcout << L"All in files: " << all_size << L" bytes in " << duration.count() << L" microseconds" << endl;
+    wcout << L"All in files: " << formatOutBytes(all_size) << L" in " << formatOutMicroseconds(duration.count()) << endl;
     return 0;
 }
